@@ -1,0 +1,11 @@
+version: '3.8'
+services:
+  db:
+    image: postgres:15
+    restart: always
+    environment:
+      POSTGRES_USER: cbe_user
+      POSTGRES_PASSWORD: cbe_password
+      POSTGRES_DB: cbe_bank
+    ports:
+      - "5432:5432"
