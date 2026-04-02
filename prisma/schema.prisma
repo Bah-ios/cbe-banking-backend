@@ -3,11 +3,81 @@
 
 // Get a free hosted Postgres database in seconds: `npx create-db`
 
-generator client {
-  provider = "prisma-client"
-  output   = "../generated/prisma"
-}
 
 datasource db {
   provider = "postgresql"
+  
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+//The User
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String
+  fullName     String
+  role         Role      @default(CUSTOMER)
+  accounts     Account[]
+  auditLogs    AuditLog[]
+  createdAt    DateTime  @default(now())
+}
+
+// The Account (The vault for a user)
+model Account {
+  id            String   @id @default(uuid())
+  accountNumber String   @unique
+  balance       Decimal  @default(0.00) 
+  status        AccountStatus @default(ACTIVE)
+  userId        String
+  user          User     @relation(fields: [userId], references: [id])
+  
+  // History of money moving in and out
+  sentTransfers     Transaction[] @relation("Sender")
+  receivedTransfers Transaction[] @relation("Receiver")
+
+  createdAt     DateTime @default(now())
+}
+
+// The Transaction (Recording money movement)
+model Transaction {
+  id              String   @id @default(uuid())
+  amount          Decimal
+  fromAccountId   String?  // Null if it's an outside deposit
+  fromAccount     Account? @relation("Sender", fields: [fromAccountId], references: [id])
+  toAccountId     String
+  toAccount       Account  @relation("Receiver", fields: [toAccountId], references: [id])
+  type            TransactionType
+  idempotencyKey  String?  @unique // Critical for banking safety
+  createdAt       DateTime @default(now())
+}
+
+// 4. The Audit Log (The "Black Box")
+model AuditLog {
+  id        String   @id @default(uuid())
+  action    String   
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  details   Json?    
+  ipAddress String?
+  createdAt DateTime @default(now())
+}
+
+enum Role {
+  CUSTOMER
+  ADMIN
+}
+
+enum AccountStatus {
+  ACTIVE
+  FROZEN
+}
+
+enum TransactionType {
+  TRANSFER
+  DEPOSIT
+  WITHDRAWAL
 }
