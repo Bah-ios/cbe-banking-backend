@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const { PrismaClient } = require('@prisma/client');
+const bcrypt = require('bcryptjs')
 
 const app = express();
 
@@ -15,7 +16,7 @@ const prisma = new PrismaClient({
 
 app.use(express.json());
 
-// 1. Health Check
+//  Health Check
 app.get('/health', async (req, res) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
@@ -26,14 +27,18 @@ app.get('/health', async (req, res) => {
 });
 
 
-// 2. Register User + Auto-Create Bank Account
+//  Register User + Auto-Create Bank Account
 app.post('/api/users/register', async (req, res) => {
   
   console.log("Data received from Postman:", req.body); 
   const { email, fullName, password } = req.body;
-
+  
   try {
     // This is a TRANSACTION: Both happen or nothing happens.
+    const salt = bcrypt.genSaltSync(10);
+    const hashedPassword = await bcrypt.hash(password, salt);  
+
+
     const result = await prisma.$transaction(async (tx) => {
       
       // A. Create the User
@@ -41,7 +46,7 @@ app.post('/api/users/register', async (req, res) => {
         data: {
           email,
           fullName,
-          passwordHash: password, //unhashed pass
+          passwordHash: hashedPassword, //unhashed pass
         },
       });
 
@@ -49,18 +54,21 @@ app.post('/api/users/register', async (req, res) => {
       const account = await tx.account.create({
         data: {
           userId: user.id,
-          accountNumber: "CBE-" + Math.floor(100000000 + Math.random() * 900000000),
+          accountNumber: "1000" + Math.floor(100000000 + Math.random() * 900000000),
           balance: 0.0,
         },
       });
 
       return { user, account };
     });
+     delete result.user.passwordHash;
+
 
     res.status(201).json({
       message: "User and Bank Account created!",
       data: result,
     });
+    
 
   } catch (error) {
     console.error("Registration Error:", error);
