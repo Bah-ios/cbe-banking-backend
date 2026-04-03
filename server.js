@@ -1,8 +1,8 @@
 require('dotenv').config();
 const express = require('express');
 const { PrismaClient } = require('@prisma/client');
-const bcrypt = require('bcryptjs')
-
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 const app = express();
 
 //  Prisma  Client Initialization
@@ -70,6 +70,7 @@ app.post('/api/users/register', async (req, res) => {
     });
     
 
+
   } catch (error) {
     console.error("Registration Error:", error);
     res.status(400).json({ 
@@ -77,6 +78,42 @@ app.post('/api/users/register', async (req, res) => {
       details: error.message.includes("unique constraint") ? "Email already exists" : error.message 
     });
   }
+});
+
+app.post('/api/users/login', async(req, res) => {
+
+  const {email, password} = req.body;
+
+  try{
+    const user = await prisma.user.findUnique({
+      where : { email : email }
+    });
+    if(!user){
+      return res.status(401).json({error : "Invalid Email or passowrd"});
+    }
+
+    const isMatch = await bcrypt.compare(password, user.passwordHash);
+
+    if(!isMatch){
+      return res.status(401).json({ error : "Invalid email or password"})
+    }
+    
+    const token = jwt.sign(
+      {userId : user.id, role : user.role},
+      process.env.JWT_SECRET,
+      { expiresIn : '1h'}
+    );
+
+     res.json({
+      message: "Login successful",
+      token: token
+    });
+  }
+  catch(error){
+    res.status(500).json({ error: "Login failed" });
+  }
+
+  
 });
 
 const PORT = 3000;
