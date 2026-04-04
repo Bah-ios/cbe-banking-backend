@@ -4,6 +4,7 @@ const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const app = express();
+const { protect } = require('./middleware/authMiddleware')
 
 //  Prisma  Client Initialization
 const prisma = new PrismaClient({
@@ -15,6 +16,7 @@ const prisma = new PrismaClient({
 });
 
 app.use(express.json());
+
 
 //  Health Check
 app.get('/health', async (req, res) => {
@@ -116,6 +118,29 @@ app.post('/api/users/login', async(req, res) => {
   
 });
 
+app.get('/api/users/profile', protect, async (req, res) => {
+  try {
+    // We get the user ID from the "protect" middleware
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: {
+        id: true,
+        email: true,
+        fullName: true,
+        role: true,
+        accounts: true, // This shows the user's bank accounts
+      }
+    });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    res.json(user);
+  } catch (error) {
+    res.status(500).json({ message: "Server error fetching profile" });
+  }
+});
 const PORT = 3000;
 app.listen(PORT, () => {
   console.log(`🚀 CBE Bank Server running on http://localhost:${PORT}`);
