@@ -45,15 +45,22 @@ model Account {
 // The Transaction (Recording money movement)
 model Transaction {
   id              String   @id @default(uuid())
-  amount          Decimal
-  fromAccountId   String?  // Null if it's an outside deposit
+  amount          Decimal  @db.Decimal(15, 2)
+  
+  // The sender
+  fromAccountId   String?
   fromAccount     Account? @relation("Sender", fields: [fromAccountId], references: [id])
+  
+  // The receiver
   toAccountId     String
   toAccount       Account  @relation("Receiver", fields: [toAccountId], references: [id])
+  
   type            TransactionType
-  idempotencyKey  String?  @unique // Critical for banking safety
+  idempotencyKey  String?  @unique
   createdAt       DateTime @default(now())
 }
+
+
 
 // 4. The Audit Log (The "Black Box")
 model AuditLog {
