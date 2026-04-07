@@ -141,6 +141,65 @@ app.get('/api/users/profile', protect, async (req, res) => {
     res.status(500).json({ message: "Server error fetching profile" });
   }
 });
+// POST /api/transactions/transfer
+app.post('/api/transactions/transfer', protect, async (req, res) => {
+  const { fromAccountId, toAccountNumber, amount } = req.body;
+  const transferAmount = parseFloat(amount);
+
+  try {
+    // 1. Start a Prisma Transaction
+    const result = await prisma.$transaction(async (tx) => {
+      
+      // A. Find the sender's account and check balance
+      const senderAccount = await tx.account.findUnique({
+        where: { id: fromAccountId }
+      });
+
+      if (!senderAccount || senderAccount.balance < transferAmount) {
+        throw new Error("Insufficient funds or account not found");
+      }
+
+      // B. Find the receiver's account by Account Number
+      const receiverAccount = await tx.account.findUnique({
+        where: { accountNumber: toAccountNumber }
+      });
+
+      if (!receiverAccount) {
+        throw new Error("Receiver account not found");
+      }
+
+      // C. Deduct from Sender
+      const updatedSender = await tx.account.update({
+        where: { id: fromAccountId },
+        data: { balance: { decrement: transferAmount } }
+      });
+
+      // D. Add to Receiver
+      const updatedReceiver = await tx.account.update({
+        where: { id: receiverAccount.id },
+        data: { balance: { increment: transferAmount } }
+      });
+
+      // E. Create the Transaction Record
+      const transactionRecord = await tx.transaction.create({
+        data: {
+          amount: transferAmount,
+          fromAccountId: senderAccount.id,
+          toAccountId: receiverAccount.id,
+          type: 'TRANSFER'
+        }
+      });
+
+      return { transactionRecord, newBalance: updatedSender.balance };
+    });
+
+    res.json({ message: "Transfer successful!", data: result });
+
+  } catch (error) {
+    console.error("Transfer Error:", error.message);
+    res.status(400).json({ error: error.message });
+  }
+});
 const PORT = 3000;
 app.listen(PORT, () => {
   console.log(`🚀 CBE Bank Server running on http://localhost:${PORT}`);
