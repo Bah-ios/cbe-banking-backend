@@ -145,6 +145,10 @@ app.get('/api/users/profile', protect, async (req, res) => {
 app.post('/api/transactions/transfer', protect, async (req, res) => {
   const { fromAccountId, toAccountNumber, amount } = req.body;
   const transferAmount = parseFloat(amount);
+   //  Basic Validation
+  if (isNaN(transferAmount) || transferAmount <= 0) {
+    return res.status(400).json({ error: "Amount must be a positive number" });
+  }
 
   try {
     // 1. Start a Prisma Transaction
@@ -152,7 +156,8 @@ app.post('/api/transactions/transfer', protect, async (req, res) => {
       
       // A. Find the sender's account and check balance
       const senderAccount = await tx.account.findUnique({
-        where: { id: fromAccountId }
+        where: { id: fromAccountId },
+         include: { user: true } // Include user so we can log their name
       });
 
       if (!senderAccount || senderAccount.balance < transferAmount) {
@@ -168,17 +173,33 @@ app.post('/api/transactions/transfer', protect, async (req, res) => {
         throw new Error("Receiver account not found");
       }
 
-      // C. Deduct from Sender
-      const updatedSender = await tx.account.update({
+      // not allowing Self tarnsfer 
+      if (senderAccount.accountNumber === toAccountNumber) {
+        throw new Error("You cannot transfer money to the same account");
+      }
+
+     // Updating the balance 
+      await tx.account.update({
         where: { id: fromAccountId },
         data: { balance: { decrement: transferAmount } }
       });
 
-      // D. Add to Receiver
-      const updatedReceiver = await tx.account.update({
+      await tx.account.update({
         where: { id: receiverAccount.id },
         data: { balance: { increment: transferAmount } }
       });
+
+      // C. Deduct from Sender
+      // const updatedSender = await tx.account.update({
+      //   where: { id: fromAccountId },
+      //   data: { balance: { decrement: transferAmount } }
+      // });
+
+      // D. Add to Receiver
+      // const updatedReceiver = await tx.account.update({
+      //   where: { id: receiverAccount.id },
+      //   data: { balance: { increment: transferAmount } }
+      // });
 
       // E. Create the Transaction Record
       const transactionRecord = await tx.transaction.create({
@@ -189,8 +210,23 @@ app.post('/api/transactions/transfer', protect, async (req, res) => {
           type: 'TRANSFER'
         }
       });
+      // CREATE AUDIT LOG (The "Paper Trail")
+      await tx.auditLog.create({
+        data: {
+          userId: req.user.id,
+          action: `TRANSFER_CREATED`,
+          ipAddress: req.ip,   // Express captures the IP automatically
+          details: {           // Saving as a JSON object
+            sender_account: senderAccount.accountNumber,
+            receiver_account: toAccountNumber,
+            amount: transferAmount,
+            transaction_id: transactionRecord.id
+          }
+        }
+      });
 
-      return { transactionRecord, newBalance: updatedSender.balance };
+      return { transactionId: transactionRecord.id, 
+        newBalance: senderAccount.balance.toNumber() - transferAmount };
     });
 
     res.json({ message: "Transfer successful!", data: result });
