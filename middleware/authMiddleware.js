@@ -32,4 +32,17 @@ const protect = async (req, res, next) => {
   }
 };
 
-module.exports = { protect };
+// function restrict-to to add role based access(R-BAC
+const restrictTo = (...roles) => {
+  return (req, res, next) => {
+    // req.user is set by the protect so i can use it here
+    if (!roles.includes(req.user.role)) {
+      return res.status(403).json({ 
+        message: "Forbidden: You do not have permission to perform this action" 
+      });
+    }
+    next();
+  };
+};
+
+module.exports = { protect, restrictTo }; //included restricTo to the export module 
