@@ -4,7 +4,9 @@ const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const app = express();
-const { protect } = require('./middleware/authMiddleware')
+
+//updated import to inclue restrictTo 
+const { protect, restrictTo } = require('./middleware/authMiddleware')
 
 //  Prisma  Client Initialization
 const prisma = new PrismaClient({
@@ -234,6 +236,19 @@ app.post('/api/transactions/transfer', protect, async (req, res) => {
   } catch (error) {
     console.error("Transfer Error:", error.message);
     res.status(400).json({ error: error.message });
+  }
+});
+// GET /api/admin/audit-logs
+// ONLY Admins can see the global audit trail
+app.get('/api/admin/audit-logs', protect, restrictTo('ADMIN'), async (req, res) => {
+  try {
+    const logs = await prisma.auditLog.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: { user: { select: { fullName: true, email: true } } }
+    });
+    res.json(logs);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch audit logs" });
   }
 });
 const PORT = 3000;
