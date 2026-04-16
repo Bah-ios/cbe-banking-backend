@@ -251,6 +251,50 @@ app.get('/api/admin/audit-logs', protect, restrictTo('ADMIN'), async (req, res) 
     res.status(500).json({ error: "Failed to fetch audit logs" });
   }
 });
+// GET /api/accounts/:accountId/transactions
+// Fetch the bank statement for a specific account
+app.get('/api/accounts/:accountId/transactions', protect, async (req, res) => {
+  const { accountId } = req.params;
+
+  try {
+    // SECURITY CHECK(Does this account actually belong to the logged-in user)
+    const account = await prisma.account.findUnique({
+      where: { id: accountId },
+    });
+
+    if (!account || account.userId !== req.user.id) {
+      return res.status(403).json({ error: "Access denied: This is not your account" });
+    }
+
+    // Fetch the Statement (Both sent and received)
+    const transactions = await prisma.transaction.findMany({
+      where: {
+        OR: [
+          { fromAccountId: accountId },
+          { toAccountId: accountId }
+        ]
+      },
+      orderBy: {
+        createdAt: 'desc' // Newest transactions first
+      },
+      include: {
+        fromAccount: { select: { accountNumber: true, user: { select: { fullName: true } } } },
+        toAccount: { select: { accountNumber: true, user: { select: { fullName: true } } } }
+      }
+    });
+
+    res.json({
+      accountNumber: account.accountNumber,
+      balance: account.balance,
+      transactionCount: transactions.length,
+      statement: transactions
+    });
+
+  } catch (error) {
+    console.error("Statement Error:", error);
+    res.status(500).json({ error: "Failed to fetch transaction history" });
+  }
+});
 const PORT = 3000;
 app.listen(PORT, () => {
   console.log(`🚀 CBE Bank Server running on http://localhost:${PORT}`);
