@@ -340,7 +340,56 @@ app.post('/api/transactions/deposit', protect, async (req, res) => {
   }
 });
 // POST /api/transactions/withdraw
+app.post('/api/transactions/withdraw', protect, async (req, res) => {
+  const { accountId, amount } = req.body;
+  const withdrawAmount = parseFloat(amount);
 
+  if (isNaN(withdrawAmount) || withdrawAmount <= 0) {
+    return res.status(400).json({ error: "Invalid withdrawal amount" });
+  }
+
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      // 1. Check current balance
+      const account = await tx.account.findUnique({ where: { id: accountId } });
+      if (!account || account.balance < withdrawAmount) {
+        throw new Error("Insufficient funds");
+      }
+
+      // 2. Deduct balance
+      const updatedAccount = await tx.account.update({
+        where: { id: accountId },
+        data: { balance: { decrement: withdrawAmount } }
+      });
+
+      // 3. Record Transaction
+      const transaction = await tx.transaction.create({
+        data: {
+          amount: withdrawAmount,
+          fromAccountId: accountId,
+          toAccountId: accountId, // Sent to self (cash out)
+          type: 'WITHDRAWAL'
+        }
+      });
+
+      // 4. Log it
+      await tx.auditLog.create({
+        data: {
+          userId: req.user.id,
+          action: 'WITHDRAWAL',
+          ipAddress: req.ip,
+          details: { amount: withdrawAmount, account: updatedAccount.accountNumber }
+        }
+      });
+
+      return { newBalance: updatedAccount.balance, transactionId: transaction.id };
+    });
+
+    res.json({ message: "Withdrawal successful", data: result });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
 const PORT = 3000;
 app.listen(PORT, () => {
   console.log(`🚀 CBE Bank Server running on http://localhost:${PORT}`);
