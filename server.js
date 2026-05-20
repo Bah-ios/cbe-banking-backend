@@ -295,6 +295,52 @@ app.get('/api/accounts/:accountId/transactions', protect, async (req, res) => {
     res.status(500).json({ error: "Failed to fetch transaction history" });
   }
 });
+// POST /api/transactions/deposit
+app.post('/api/transactions/deposit', protect, async (req, res) => {
+  const { accountId, amount } = req.body;
+  const depositAmount = parseFloat(amount);
+
+  if (isNaN(depositAmount) || depositAmount <= 0) {
+    return res.status(400).json({ error: "Invalid deposit amount" });
+  }
+
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      // 1. Update Account Balance
+      const updatedAccount = await tx.account.update({
+        where: { id: accountId },
+        data: { balance: { increment: depositAmount } }
+      });
+
+      // 2. Record as a Transaction (fromAccountId is NULL for deposits)
+      const transaction = await tx.transaction.create({
+        data: {
+          amount: depositAmount,
+          toAccountId: accountId,
+          type: 'DEPOSIT'
+        }
+      });
+
+      // 3. Log it
+      await tx.auditLog.create({
+        data: {
+          userId: req.user.id,
+          action: 'DEPOSIT',
+          ipAddress: req.ip,
+          details: { amount: depositAmount, account: updatedAccount.accountNumber }
+        }
+      });
+
+      return { newBalance: updatedAccount.balance, transactionId: transaction.id };
+    });
+
+    res.json({ message: "Deposit successful", data: result });
+  } catch (error) {
+    res.status(400).json({ error: "Deposit failed" });
+  }
+});
+// POST /api/transactions/withdraw
+
 const PORT = 3000;
 app.listen(PORT, () => {
   console.log(`🚀 CBE Bank Server running on http://localhost:${PORT}`);
