@@ -4,9 +4,10 @@ const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const app = express();
-
+const { body, validationResult } = require('express-validator');
 //updated import to inclue restrictTo 
-const { protect, restrictTo } = require('./middleware/authMiddleware')
+const { protect, restrictTo } = require('./middleware/authMiddleware');
+const { serializeJsonQuery } = require('@prisma/client/runtime/library');
 
 //  Prisma  Client Initialization
 const prisma = new PrismaClient({
@@ -29,14 +30,25 @@ app.get('/health', async (req, res) => {
     res.status(500).json({ status: "DOWN", error: e.message });
   }
 });
-
+const rules = [
+  // Validation Rules
+  body('email').isEmail().withMessage('Enter a valid email'),
+  body('fullName').isLength({ min: 3 }).withMessage('Full name must be at least 3 characters'),
+  body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters')
+]
 
 //  Register User + Auto-Create Bank Account
-app.post('/api/users/register', async (req, res) => {
+app.post('/api/users/register', rules, async (req, res) => {
   
   console.log("Data received from Postman:", req.body); 
   const { email, fullName, password } = req.body;
   
+  // Check for validation errors
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+
   try {
     // This is a TRANSACTION: Both happen or nothing happens.
     const salt = bcrypt.genSaltSync(10);
@@ -300,6 +312,13 @@ app.post('/api/transactions/deposit', protect, async (req, res) => {
   const { accountId, amount } = req.body;
   const depositAmount = parseFloat(amount);
 
+  const account = await prisma.account.findUnique({
+    where: { id: accountId }
+  });
+
+  if (!account || account.userId !== req.user.id) {
+    return res.status(403).json({ error: "Unauthorized: This is not your account" });
+  }
   if (isNaN(depositAmount) || depositAmount <= 0) {
     return res.status(400).json({ error: "Invalid deposit amount" });
   }
@@ -343,12 +362,20 @@ app.post('/api/transactions/deposit', protect, async (req, res) => {
 app.post('/api/transactions/withdraw', protect, async (req, res) => {
   const { accountId, amount } = req.body;
   const withdrawAmount = parseFloat(amount);
+  // Add this check at the very beginning of Deposit and Withdraw
+  const account = await prisma.account.findUnique({
+    where: { id: accountId }
+  });
 
+  if (!account || account.userId !== req.user.id) {
+    return res.status(403).json({ error: "Unauthorized: This is not your account" });
+  }
   if (isNaN(withdrawAmount) || withdrawAmount <= 0) {
     return res.status(400).json({ error: "Invalid withdrawal amount" });
   }
 
   try {
+    
     const result = await prisma.$transaction(async (tx) => {
       // 1. Check current balance
       const account = await tx.account.findUnique({ where: { id: accountId } });
@@ -391,6 +418,15 @@ app.post('/api/transactions/withdraw', protect, async (req, res) => {
   }
 });
 const PORT = 3000;
+// Global Error Handler - This catches any error that happens in any route
+app.use((err, req, res, next) => {
+  console.error("!!! SERVER ERROR !!!", err.stack);
+  
+  res.status(err.status || 500).json({
+    error: "Internal Server Error",
+    message: process.env.NODE_ENV === 'production' ? "Something went wrong" : err.message
+  });
+});
 app.listen(PORT, () => {
   console.log(`🚀 CBE Bank Server running on http://localhost:${PORT}`);
 });
